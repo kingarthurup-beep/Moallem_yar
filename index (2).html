@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>معلم‌یار — دستیار هوشمند معلم</title>
+<meta name="theme-color" content="#1E2A38" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Vazirmatn', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; }
+  #status { position: fixed; top: 0; left: 0; right: 0; padding: 10px; font-size: 13px; text-align: center; background: #B23A48; color: #fff; z-index: 999; font-family: 'Vazirmatn', sans-serif; }
+</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+</head>
+<body>
+<div id="status" style="display:none">در حال بارگذاری کتابخانه‌ها... اگر این پیام باقی ماند، اینترنت را بررسی کنید.</div>
+<div id="root"></div>
+<script>
+window.addEventListener("load", function () {
+  if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+    document.getElementById("status").style.display = "block";
+  }
+});
+</script>
+<script>
+const e = React.createElement;
+const { useState } = React;
+
+const COLORS = {
+  ink: "#1E2A38", inkSoft: "#4B5A6B", paper: "#F3F1EA", paperDeep: "#EAE6DB",
+  saffron: "#B8722A", saffronSoft: "#E8C596", sage: "#4B7B5B", sageSoft: "#CFE0D3",
+  brick: "#A9414D", brickSoft: "#F0D3D6", line: "#D8D2C4",
+};
+
+async function callClaude(prompt) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const data = await response.json();
+  const text = (data.content || []).map(b => b.type === "text" ? b.text : "").filter(Boolean).join("\n");
+  return text || "پاسخی دریافت نشد.";
+}
+
+const initialGroups = [
+  { id: 1, name: "پایه هفتم – ریاضی", members: 24, messages: [
+    { id: 101, role: "parent", sender: "مادر آرمین", text: "سلام خانم معلم، امتحان فصل سوم چه روزیه؟ آرمین یادش رفته یادداشت کنه.", time: "۰۸:۱۲" },
+    { id: 102, role: "student", sender: "سارا رضایی", text: "ببخشید تمرین صفحه ۴۵ رو باید کامل حل کنیم یا فقط سوال‌های زوج؟", time: "۰۹:۰۵" },
+    { id: 103, role: "parent", sender: "پدر نیکا", text: "نیکا امروز به خاطر سرماخوردگی نمیاد مدرسه، تکالیفش رو کی میتونه بگیره؟", time: "۱۰:۴۰" },
+  ]},
+  { id: 2, name: "پایه هشتم – علوم", members: 19, messages: [
+    { id: 201, role: "student", sender: "محمد کریمی", text: "خانم فیلم مربوط به فصل دستگاه گوارش رو نمیتونم پیدا کنم، لینکش رو دوباره میفرستید؟", time: "۱۱:۲۰" },
+    { id: 202, role: "parent", sender: "مادر هستی", text: "گزارش کار آزمایشگاهی هفته پیش هنوز تصحیح نشده، هستی نگران نمرشه.", time: "۱۲:۰۰" },
+  ]},
+];
+
+const initialAssignments = [
+  { id: 1, title: "تمرین فصل سوم – کسرها", group: "پایه هفتم – ریاضی", due: "سه‌شنبه ۱۸ شهریور", remind: true },
+  { id: 2, title: "گزارش آزمایش دستگاه گوارش", group: "پایه هشتم – علوم", due: "پنج‌شنبه ۲۰ شهریور", remind: true },
+  { id: 3, title: "امتحان میان‌ترم فصل سوم", group: "پایه هفتم – ریاضی", due: "شنبه ۲۲ شهریور", remind: false },
+];
+
+const alerts = [
+  { id: 1, student: "امیرحسین طالبی", group: "پایه هفتم – ریاضی", note: "سه تکلیف پشت‌سرهم تحویل نداده و در گروه هم غایب بوده." },
+  { id: 2, student: "هستی نادری", group: "پایه هشتم – علوم", note: "نمره آزمون اخیر نسبت به میانگین قبلی افت محسوسی داشته." },
+];
+
+function TabButton(props) {
+  const active = props.active;
+  return e("button", {
+    onClick: props.onClick,
+    style: {
+      color: active ? COLORS.ink : COLORS.inkSoft,
+      background: active ? COLORS.paperDeep : "transparent",
+      borderRight: active ? "3px solid " + COLORS.saffron : "3px solid transparent",
+      border: "none", borderRightWidth: "3px", borderRightStyle: "solid",
+      display: "flex", alignItems: "center", gap: "12px", width: "100%",
+      textAlign: "start", cursor: "pointer", padding: "12px 16px", fontFamily: "inherit"
+    }
+  },
+    e("span", { style: { fontSize: "18px" } }, props.icon),
+    e("span", { style: { fontWeight: active ? 600 : 500 } }, props.label)
+  );
+}
+
+function SectionTitle(props) {
+  return e("div", { style: { marginBottom: "24px" } },
+    e("h2", { style: { fontSize: "22px", fontWeight: 700, color: COLORS.ink, margin: 0 } }, props.title),
+    props.sub ? e("p", { style: { color: COLORS.inkSoft, fontSize: "14px", marginTop: "4px" } }, props.sub) : null
+  );
+}
+
+function Panel(props) {
+  const style = Object.assign({ background: "#FFFFFF", border: "1px solid " + COLORS.line, padding: "20px" }, props.style || {});
+  return e("div", { style: style }, props.children);
+}
+
+function AIButton(props) {
+  const loading = props.loading;
+  return e("button", {
+    onClick: props.onClick, disabled: loading,
+    style: {
+      display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 16px", fontSize: "14px",
+      background: loading ? COLORS.saffronSoft : COLORS.saffron, color: "#fff", fontWeight: 600,
+      border: "none", cursor: "pointer", opacity: loading ? 0.8 : 1, fontFamily: "inherit"
+    }
+  },
+    e("span", null, loading ? "⏳" : "✨"),
+    loading ? "در حال فکر کردن..." : (props.label || "پیشنهاد با هوش مصنوعی")
+  );
+}
+
+function TeacherAIApp() {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [groups, setGroups] = useState(initialGroups);
+  const [assignments, setAssignments] = useState(initialAssignments);
+  const [selectedGroupId, setSelectedGroupId] = useState(1);
+  const [replySuggestions, setReplySuggestions] = useState({});
+  const [replyLoadingId, setReplyLoadingId] = useState(null);
+  const [quizTopic, setQuizTopic] = useState("تناسب و درصد");
+  const [quizCount, setQuizCount] = useState(4);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizResult, setQuizResult] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportResult, setReportResult] = useState("");
+  const [parentStudent, setParentStudent] = useState("آرمین محمدی");
+  const [parentNotes, setParentNotes] = useState("نمره ریاضی: ۱۸ از ۲۰. سه تکلیف کامل. یک بار غیبت بدون اطلاع.");
+  const [parentLoading, setParentLoading] = useState(false);
+  const [parentResult, setParentResult] = useState("");
+
+  const selectedGroup = groups.find(function (g) { return g.id === selectedGroupId; });
+
+  async function handleSuggestReply(message) {
+    setReplyLoadingId(message.id);
+    try {
+      const prompt = "تو دستیار یک معلم ایرانی در گروه کلاسی هستی. این پیام از یک " +
+        (message.role === "parent" ? "والد" : "دانش‌آموز") + " به نام " + message.sender + " است: \"" + message.text + "\"\n" +
+        "یک پاسخ کوتاه، مودبانه، دقیق و به زبان فارسی محاوره‌ای رسمی برای معلم بنویس که مستقیم قابل ارسال در گروه باشد. فقط متن پاسخ را بنویس.";
+      const text = await callClaude(prompt);
+      setReplySuggestions(function (prev) { const n = Object.assign({}, prev); n[message.id] = text.trim(); return n; });
+    } catch (err) {
+      setReplySuggestions(function (prev) { const n = Object.assign({}, prev); n[message.id] = "خطا در دریافت پاسخ. دوباره تلاش کنید."; return n; });
+    }
+    setReplyLoadingId(null);
+  }
+
+  function handleSendReply(message) {
+    const draft = replySuggestions[message.id];
+    if (!draft) return;
+    setGroups(function (prev) {
+      return prev.map(function (g) {
+        if (g.id !== selectedGroupId) return g;
+        return Object.assign({}, g, { messages: g.messages.concat([{ id: Date.now(), role: "teacher", sender: "شما", text: draft, time: "اکنون" }]) });
+      });
+    });
+    setReplySuggestions(function (prev) { const n = Object.assign({}, prev); delete n[message.id]; return n; });
+  }
+
+  async function handleGenerateQuiz() {
+    setQuizLoading(true); setQuizResult("");
+    try {
+      const prompt = "به عنوان یک معلم ایرانی، " + quizCount + " سوال آزمون کوتاه درباره‌ی \"" + quizTopic + "\" برای دانش‌آموزان پایه هفتم/هشتم به زبان فارسی بساز. سوالات را شماره‌گذاری کن و در انتها پاسخ‌نامه را جدا بیاور.";
+      setQuizResult(await callClaude(prompt));
+    } catch (err) { setQuizResult("خطا در ساخت آزمون."); }
+    setQuizLoading(false);
+  }
+
+  async function handleGenerateReport() {
+    setReportLoading(true); setReportResult("");
+    try {
+      const allMessages = groups.map(function (g) {
+        return "گروه " + g.name + ":\n" + g.messages.map(function (m) { return "- " + m.sender + ": " + m.text; }).join("\n");
+      }).join("\n\n");
+      const prompt = "این پیام‌های هفته اخیر گروه‌های کلاسی یک معلم است:\n\n" + allMessages + "\n\nیک خلاصه هفتگی کوتاه (حداکثر ۶ خط) برای خود معلم بنویس: مهم‌ترین سوالات تکراری، مسائل نیازمند پیگیری، و یک پیشنهاد عملی برای هفته بعد.";
+      setReportResult(await callClaude(prompt));
+    } catch (err) { setReportResult("خطا در ساخت گزارش."); }
+    setReportLoading(false);
+  }
+
+  async function handleGenerateParentReport() {
+    setParentLoading(true); setParentResult("");
+    try {
+      const prompt = "یک گزارش هفتگی کوتاه و دلگرم‌کننده برای والدین دانش‌آموزی به نام " + parentStudent + " بنویس. یادداشت معلم: \"" + parentNotes + "\"\nحداکثر ۴ خط، مودبانه و مشخص باشد.";
+      setParentResult(await callClaude(prompt));
+    } catch (err) { setParentResult("خطا در ساخت گزارش."); }
+    setParentLoading(false);
+  }
+
+  const tabs = [
+    { id: "dashboard", icon: "📊", label: "داشبورد" },
+    { id: "groups", icon: "👥", label: "گروه‌های کلاس" },
+    { id: "assignments", icon: "📝", label: "تکالیف و آزمون" },
+    { id: "reports", icon: "📈", label: "گزارش‌ها" },
+    { id: "special", icon: "✨", label: "امکانات ویژه" },
+    { id: "settings", icon: "⚙️", label: "تنظیمات" },
+  ];
+
+  const sidebar = e("div", { style: { width: "220px", borderLeft: "1px solid " + COLORS.line, background: "#fff", flexShrink: 0 } },
+    e("div", { style: { padding: "20px 16px", borderBottom: "1px solid " + COLORS.line } },
+      e("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+        e("span", { style: { fontSize: "22px" } }, "🤖"),
+        e("span", { style: { fontWeight: 800, fontSize: "18px", color: COLORS.ink } }, "معلم‌یار")
+      ),
+      e("p", { style: { fontSize: "12px", color: COLORS.inkSoft, marginTop: "4px" } }, "دستیار هوشمند کلاس شما")
+    ),
+    e("nav", { style: { padding: "8px 0" } },
+      tabs.map(function (t) {
+        return e(TabButton, { key: t.id, active: activeTab === t.id, onClick: function () { setActiveTab(t.id); }, icon: t.icon, label: t.label });
+      })
+    )
+  );
+
+  let content = null;
+
+  if (activeTab === "dashboard") {
+    content = e("div", null,
+      e(SectionTitle, { title: "داشبورد", sub: "نگاهی سریع به وضعیت امروز کلاس‌های شما" }),
+      e("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "16px", marginBottom: "24px" } },
+        e(Panel, { style: { borderTop: "3px solid " + COLORS.saffron } },
+          e("p", { style: { color: COLORS.inkSoft, fontSize: "13px" } }, "پیام‌های امروز"),
+          e("p", { style: { fontSize: "28px", fontWeight: 700, color: COLORS.ink } }, "۵")
+        ),
+        e(Panel, { style: { borderTop: "3px solid " + COLORS.sage } },
+          e("p", { style: { color: COLORS.inkSoft, fontSize: "13px" } }, "تکالیف در انتظار تصحیح"),
+          e("p", { style: { fontSize: "28px", fontWeight: 700, color: COLORS.ink } }, "۱۲")
+        ),
+        e(Panel, { style: { borderTop: "3px solid " + COLORS.brick } },
+          e("p", { style: { color: COLORS.inkSoft, fontSize: "13px" } }, "هشدارهای فعال"),
+          e("p", { style: { fontSize: "28px", fontWeight: 700, color: COLORS.ink } }, String(alerts.length))
+        )
+      ),
+      e(Panel, null,
+        e("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" } },
+          e("span", null, "🔔"),
+          e("span", { style: { fontWeight: 700, color: COLORS.ink } }, "هشدارهای زودهنگام")
+        ),
+        alerts.map(function (a) {
+          return e("div", { key: a.id, style: { padding: "10px 0", borderTop: "1px solid " + COLORS.line } },
+            e("p", { style: { fontWeight: 600, color: COLORS.ink, fontSize: "14px", margin: 0 } }, a.student + " — " + a.group),
+            e("p", { style: { color: COLORS.inkSoft, fontSize: "13px", margin: "4px 0 0" } }, a.note)
+          );
+        })
+      )
+    );
+  } else if (activeTab === "groups") {
+    content = e("div", null,
+      e(SectionTitle, { title: "گروه‌های کلاس", sub: "پیام‌های گروه را ببینید و با یک کلیک پاسخ پیشنهادی بگیرید" }),
+      e("div", { style: { display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" } },
+        groups.map(function (g) {
+          return e("button", {
+            key: g.id, onClick: function () { setSelectedGroupId(g.id); },
+            style: {
+              padding: "8px 16px", fontSize: "14px", background: g.id === selectedGroupId ? COLORS.ink : "#fff",
+              color: g.id === selectedGroupId ? "#fff" : COLORS.ink, border: "1px solid " + COLORS.line, fontWeight: 600, cursor: "pointer", fontFamily: "inherit"
+            }
+          }, g.name + " · " + g.members + " نفر");
+        })
+      ),
+      e("div", { style: { display: "flex", flexDirection: "column", gap: "12px" } },
+        selectedGroup.messages.map(function (m) {
+          const roleLabel = m.role === "parent" ? "والد" : (m.role === "student" ? "دانش‌آموز" : "شما");
+          const children = [
+            e("div", { key: "h", style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" } },
+              e("span", { style: { fontWeight: 600, color: COLORS.ink, fontSize: "14px" } },
+                m.sender + " ",
+                e("span", { style: { fontWeight: 400, color: COLORS.inkSoft, fontSize: "12px" } }, "(" + roleLabel + ")")
+              ),
+              e("span", { style: { color: COLORS.inkSoft, fontSize: "12px" } }, m.time)
+            ),
+            e("p", { key: "t", style: { color: COLORS.ink, fontSize: "14px", marginBottom: "12px" } }, m.text)
+          ];
+          if (m.role !== "teacher") {
+            if (!replySuggestions[m.id]) {
+              children.push(e(AIButton, { key: "b", loading: replyLoadingId === m.id, onClick: function () { handleSuggestReply(m); } }));
+            } else {
+              children.push(e("div", { key: "s", style: { background: COLORS.paper, border: "1px dashed " + COLORS.saffron, padding: "12px" } },
+                e("p", { style: { fontSize: "13px", color: COLORS.inkSoft, marginBottom: "6px" } }, "پیشنهاد پاسخ:"),
+                e("p", { style: { fontSize: "14px", color: COLORS.ink, marginBottom: "10px" } }, replySuggestions[m.id]),
+                e("div", { style: { display: "flex", gap: "8px" } },
+                  e("button", {
+                    onClick: function () { handleSendReply(m); },
+                    style: { display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 12px", fontSize: "14px", background: COLORS.sage, color: "#fff", fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit" }
+                  }, "📤 ارسال در گروه"),
+                  e("button", {
+                    onClick: function () { handleSuggestReply(m); },
+                    style: { padding: "6px 12px", fontSize: "14px", border: "1px solid " + COLORS.line, color: COLORS.ink, background: "#fff", cursor: "pointer", fontFamily: "inherit" }
+                  }, "پیشنهاد دیگر")
+                )
+              ));
+            }
+          }
+          return e(Panel, { key: m.id }, children);
+        })
+      )
+    );
+  } else if (activeTab === "assignments") {
+    content = e("div", null,
+      e(SectionTitle, { title: "تکالیف و آزمون", sub: "یادآوری‌ها را مدیریت کنید و با هوش مصنوعی آزمون بسازید" }),
+      e(Panel, { style: { marginBottom: "20px" } },
+        assignments.map(function (a) {
+          return e("div", { key: a.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid " + COLORS.line } },
+            e("div", null,
+              e("p", { style: { fontWeight: 600, color: COLORS.ink, fontSize: "14px", margin: 0 } }, a.title),
+              e("p", { style: { color: COLORS.inkSoft, fontSize: "12px", margin: "4px 0 0" } }, a.group + " · مهلت: " + a.due)
+            ),
+            e("button", {
+              onClick: function () { setAssignments(function (prev) { return prev.map(function (x) { return x.id === a.id ? Object.assign({}, x, { remind: !x.remind }) : x; }); }); },
+              style: { display: "flex", alignItems: "center", gap: "4px", padding: "6px 12px", fontSize: "14px", border: "1px solid " + (a.remind ? COLORS.sage : COLORS.line), color: a.remind ? COLORS.sage : COLORS.inkSoft, fontWeight: 600, background: "#fff", cursor: "pointer", fontFamily: "inherit" }
+            }, a.remind ? "✔️ یادآوری فعال" : "یادآوری غیرفعال")
+          );
+        })
+      ),
+      e(Panel, null,
+        e("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" } },
+          e("span", null, "✨"), e("span", { style: { fontWeight: 700, color: COLORS.ink } }, "ساخت آزمون با هوش مصنوعی")
+        ),
+        e("div", { style: { display: "flex", gap: "12px", marginBottom: "12px" } },
+          e("input", { value: quizTopic, onChange: function (ev) { setQuizTopic(ev.target.value); }, placeholder: "موضوع درس", style: { flex: 1, padding: "10px", border: "1px solid " + COLORS.line, background: COLORS.paper, fontFamily: "inherit" } }),
+          e("input", { type: "number", min: 1, max: 10, value: quizCount, onChange: function (ev) { setQuizCount(ev.target.value); }, style: { width: "70px", padding: "10px", border: "1px solid " + COLORS.line, background: COLORS.paper, fontFamily: "inherit" } })
+        ),
+        e(AIButton, { loading: quizLoading, onClick: handleGenerateQuiz, label: "ساخت آزمون" }),
+        quizResult ? e("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "'Vazirmatn', sans-serif", marginTop: "16px", background: COLORS.paper, padding: "14px", fontSize: "14px", color: COLORS.ink, border: "1px solid " + COLORS.line } }, quizResult) : null
+      )
+    );
+  } else if (activeTab === "reports") {
+    content = e("div", null,
+      e(SectionTitle, { title: "گزارش‌ها", sub: "خلاصه هفتگی همه گروه‌ها را با یک کلیک بسازید" }),
+      e(Panel, null,
+        e("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" } },
+          e("span", null, "📈"), e("span", { style: { fontWeight: 700, color: COLORS.ink } }, "خلاصه هفتگی گروه‌ها")
+        ),
+        e("p", { style: { color: COLORS.inkSoft, fontSize: "13px", marginBottom: "12px" } }, "بر اساس پیام‌های واقعیِ گروه‌های نمایش‌داده‌شده در تب «گروه‌های کلاس» ساخته می‌شود."),
+        e(AIButton, { loading: reportLoading, onClick: handleGenerateReport, label: "تولید خلاصه هفتگی" }),
+        reportResult ? e("div", { style: { marginTop: "16px", background: COLORS.paper, padding: "14px", fontSize: "14px", color: COLORS.ink, border: "1px solid " + COLORS.line, whiteSpace: "pre-wrap" } }, reportResult) : null
+      )
+    );
+  } else if (activeTab === "special") {
+    const features = [
+      { icon: "⚠️", title: "هشدار زودهنگام افت تحصیلی", text: "روند نمرات و مشارکت هر دانش‌آموز را دنبال می‌کند و پیش از افت جدی به شما خبر می‌دهد." },
+      { icon: "❤️", title: "تحلیل فضای گروه", text: "نشانه‌های استرس یا تنش در تعاملات گروه را تشخیص می‌دهد، بدون ورود به مکالمات خصوصی." },
+      { icon: "🛡️", title: "تشخیص تکالیف تولیدشده با AI", text: "به شما کمک می‌کند احتمال استفاده نامناسب دانش‌آموز از هوش مصنوعی در تکلیف را تشخیص دهید." },
+      { icon: "🏆", title: "انگیزش و امتیازدهی", text: "مشارکت و تحویل به‌موقع تکالیف را با نشان و امتیاز ملایم در گروه نمایش می‌دهد." },
+    ];
+    content = e("div", null,
+      e(SectionTitle, { title: "امکانات ویژه", sub: "قابلیت‌هایی که این دستیار را از یک ربات ساده متمایز می‌کنند" }),
+      e("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" } },
+        features.map(function (f, i) {
+          return e(Panel, { key: i },
+            e("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" } },
+              e("span", null, f.icon), e("span", { style: { fontWeight: 700, color: COLORS.ink, fontSize: "14px" } }, f.title)
+            ),
+            e("p", { style: { color: COLORS.inkSoft, fontSize: "13px" } }, f.text)
+          );
+        })
+      ),
+      e(Panel, null,
+        e("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" } },
+          e("span", null, "👶"), e("span", { style: { fontWeight: 700, color: COLORS.ink } }, "حالت والدین — گزارش هفتگی خودکار")
+        ),
+        e("div", { style: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "12px" } },
+          e("input", { value: parentStudent, onChange: function (ev) { setParentStudent(ev.target.value); }, placeholder: "نام دانش‌آموز", style: { padding: "10px", border: "1px solid " + COLORS.line, background: COLORS.paper, fontFamily: "inherit" } }),
+          e("textarea", { value: parentNotes, onChange: function (ev) { setParentNotes(ev.target.value); }, placeholder: "یادداشت‌های شما", rows: 2, style: { padding: "10px", border: "1px solid " + COLORS.line, background: COLORS.paper, fontFamily: "inherit" } })
+        ),
+        e(AIButton, { loading: parentLoading, onClick: handleGenerateParentReport, label: "ساخت گزارش برای والدین" }),
+        parentResult ? e("div", { style: { marginTop: "16px", background: COLORS.paper, padding: "14px", fontSize: "14px", color: COLORS.ink, border: "1px solid " + COLORS.line, whiteSpace: "pre-wrap" } }, parentResult) : null
+      )
+    );
+  } else if (activeTab === "settings") {
+    content = e("div", null,
+      e(SectionTitle, { title: "تنظیمات اتصال", sub: "این بخش در نسخه دمو فقط نمایشی است" }),
+      e(Panel, null,
+        ["تلگرام", "بله", "ایتا", "واتساپ"].map(function (name) {
+          return e("div", { key: name, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid " + COLORS.line } },
+            e("span", { style: { color: COLORS.ink, fontWeight: 600, fontSize: "14px" } }, name),
+            e("span", { style: { fontSize: "12px", color: name === "تلگرام" ? COLORS.sage : COLORS.inkSoft, border: "1px solid " + (name === "تلگرام" ? COLORS.sage : COLORS.line), padding: "4px 10px" } }, name === "تلگرام" ? "متصل" : "اتصال نشده")
+          );
+        })
+      )
+    );
+  }
+
+  return e("div", { style: { fontFamily: "'Vazirmatn', sans-serif", background: COLORS.paper, minHeight: "100vh" } },
+    e("div", { style: { display: "flex", minHeight: "100vh" } },
+      sidebar,
+      e("div", { style: { flex: 1, padding: "28px", maxWidth: "900px" } }, content)
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(e(TeacherAIApp));
+</script>
+</body>
+</html>
